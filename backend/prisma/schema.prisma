@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  profiles  Profile[]
+}
+
+model Server {
+  id          String   @id @default(uuid())
+  name        String
+  location    String
+  flag        String   // Emoji or URL to flag
+  ipAddress   String
+  port        Int
+  protocol    Protocol @default(HTTP_INJECTOR)
+  isActive    Boolean  @default(true)
+  isUnderMaintenance Boolean @default(false)
+  load        Int      @default(0) // Percentage 0-100
+  ping        Int      @default(0) // In milliseconds
+  configPayload String? // Optional payload config for specific protocols
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Profile {
+  id          String   @id @default(uuid())
+  name        String
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  configData  String   // JSON string of the .clark profile data
+  isFavorite  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum Protocol {
+  HTTP_INJECTOR
+  DARK_TUNNEL
+  OPENVPN
+  WIREGUARD
+}
