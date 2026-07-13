@@ -1,3 +1,4 @@
+import './global.css';
 import 'react-native-reanimated';
 import AppNavigator from './src/navigation/AppNavigator';
 
