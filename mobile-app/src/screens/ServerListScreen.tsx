@@ -45,32 +45,51 @@ export default function ServerListScreen() {
 
   const renderServer = ({ item }: { item: Server }) => {
     const isSelected = currentServer?.id === item.id;
+    const { Activity } = require('lucide-react-native');
+    
     return (
       <TouchableOpacity 
         onPress={() => handleSelectServer(item)}
-        className={`flex-row items-center justify-between p-4 mb-3 rounded-2xl border-2 ${isSelected ? 'border-primary-500 bg-primary-500/10' : 'border-dark-700 bg-dark-800'}`}
+        className={`flex-row items-center justify-between p-5 mb-4 rounded-[24px] border-2 ${
+          isSelected ? 'border-primary-500 bg-primary-500/10' : 'border-dark-800 bg-dark-900'
+        }`}
       >
-        <View className="flex-row items-center">
-          <Text className="text-3xl mr-4">{item.flag}</Text>
-          <View>
-            <Text className="text-white font-bold text-lg">{item.name}</Text>
-            <Text className="text-slate-400 text-sm">{item.protocol}</Text>
+        <View className="flex-row items-center flex-1">
+          <View className="bg-dark-800 w-14 h-14 rounded-2xl items-center justify-center border border-dark-700">
+            <Text className="text-3xl">{item.flag}</Text>
+          </View>
+          <View className="ml-4 flex-1">
+            <Text className="text-white font-black text-lg" numberOfLines={1}>{item.name}</Text>
+            <View className="flex-row items-center mt-1">
+              <View className="bg-accent-purple/10 px-2 py-0.5 rounded-md border border-accent-purple/20 mr-2">
+                <Text className="text-accent-purple text-[10px] font-bold">{item.protocol}</Text>
+              </View>
+              <Text className="text-slate-500 text-xs font-medium">{item.location}</Text>
+            </View>
           </View>
         </View>
-        
-        <View className="items-end">
-          <View className="flex-row items-center mb-1">
-            <Wifi size={14} color={item.ping < 50 ? '#22c55e' : item.ping < 100 ? '#eab308' : '#ef4444'} />
-            <Text className="text-slate-300 text-xs ml-1">{item.ping} ms</Text>
+
+        <View className="items-end ml-2">
+          <View className="flex-row items-center bg-dark-800 px-3 py-1.5 rounded-xl border border-dark-700">
+            <Wifi size={12} color={item.ping < 50 ? '#22c55e' : item.ping < 100 ? '#f59e0b' : '#ef4444'} />
+            <Text className="text-white text-xs font-black ml-1.5">{item.ping}ms</Text>
           </View>
-          <Text className="text-slate-400 text-xs">Load: {item.load}%</Text>
+          <View className="mt-2 flex-row items-center">
+            <Text className="text-slate-500 text-[10px] font-bold mr-2">LOAD</Text>
+            <View className="w-12 h-1.5 bg-dark-800 rounded-full overflow-hidden">
+              <View 
+                className={`h-full ${item.load < 50 ? 'bg-primary-500' : item.load < 80 ? 'bg-accent-amber' : 'bg-red-500'}`} 
+                style={{ width: `${item.load}%` }} 
+              />
+            </View>
+          </View>
         </View>
       </TouchableOpacity>
     );
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-dark-900">
+    <SafeAreaView className="flex-1 bg-dark-950">
       {/* Header */}
       <View className="flex-row items-center px-4 py-4 border-b border-dark-800">
         <TouchableOpacity onPress={() => navigation.goBack()} className="p-2">

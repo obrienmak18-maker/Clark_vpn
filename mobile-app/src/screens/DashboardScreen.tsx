@@ -1,12 +1,35 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, StatusBar } from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, StatusBar, Animated } from 'react-native';
+import { useRef, useEffect } from 'react';
 import { useNavigation } from '@react-navigation/native';
-import { Shield, ShieldAlert, Activity, Globe, Wifi } from 'lucide-react-native';
+import { Shield, ShieldAlert, Activity, Globe, Menu } from 'lucide-react-native';
 import { useVpnStore } from '../store/useVpnStore';
 
 export default function DashboardScreen() {
   const navigation = useNavigation<any>();
-  const { status, currentServer, stats, connect, disconnect } = useVpnStore();
+    const { status, currentServer, stats, connect, disconnect } = useVpnStore();
+
+  const rotation = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (status === 'CONNECTING') {
+      Animated.loop(
+        Animated.timing(rotation, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        })
+      ).start();
+    } else {
+      rotation.stopAnimation();
+      rotation.setValue(0);
+    }
+  }, [status]);
+
+  const rotate = rotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
   const isConnected = status === 'CONNECTED';
   const isConnecting = status === 'CONNECTING';
@@ -20,35 +43,56 @@ export default function DashboardScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-dark-900">
+    <SafeAreaView className="flex-1 bg-dark-950">
       <StatusBar barStyle="light-content" />
       
       {/* Header */}
       <View className="flex-row justify-between items-center px-6 py-4">
-        <Text className="text-white text-2xl font-bold tracking-wider">CLARK<Text className="text-primary-500">VPN</Text></Text>
-        <TouchableOpacity onPress={() => navigation.navigate('Settings')}>
-          <View className="w-10 h-10 bg-dark-800 rounded-full items-center justify-center">
-            <Text className="text-white">⚙️</Text>
+        <View>
+          <Text className="text-white text-2xl font-bold tracking-wider">CLARK<Text className="text-primary-500">VPN</Text></Text>
+          <View className="flex-row items-center mt-1">
+            <View className={`w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-primary-500' : 'bg-slate-500'}`} />
+            <Text className="text-slate-400 text-xs font-medium">{isConnected ? 'SERVICE ACTIVE' : 'DISCONNECTED'}</Text>
           </View>
+        </View>
+        <TouchableOpacity 
+          className="bg-dark-800 p-2 rounded-xl"
+          onPress={() => navigation.openDrawer && navigation.openDrawer()}
+        >
+          <Menu size={24} color="#ffffff" />
         </TouchableOpacity>
       </View>
 
       {/* Main Connection Area */}
-      <View className="flex-1 items-center justify-center">
+      <View className="flex-1 items-center justify-center px-6">
+        {/* Protocol Badge */}
+        <View className="bg-accent-purple/10 px-4 py-1.5 rounded-full mb-8 border border-accent-purple/20">
+          <Text className="text-accent-purple font-bold text-xs uppercase tracking-widest">HTTP Injector Mode</Text>
+        </View>
+
         <TouchableOpacity 
           activeOpacity={0.8}
           onPress={handleToggleVpn}
           disabled={isConnecting}
-          className={`w-48 h-48 rounded-full items-center justify-center border-4 ${
-            isConnected ? 'border-primary-500 bg-primary-500/20' : 
-            isConnecting ? 'border-yellow-500 bg-yellow-500/20' : 
-            'border-dark-700 bg-dark-800'
+          className={`w-56 h-56 rounded-full items-center justify-center border-8 ${
+            isConnected ? 'border-primary-500 bg-primary-500/10' : 
+            isConnecting ? 'border-accent-amber bg-accent-amber/10' : 
+            'border-dark-800 bg-dark-900'
           }`}
+          style={{
+            shadowColor: isConnected ? "#22c55e" : "#000",
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: isConnected ? 0.5 : 0,
+            shadowRadius: 20,
+            elevation: isConnected ? 10 : 0
+          }}
         >
           {isConnected ? (
             <Shield size={64} color="#22c55e" />
           ) : isConnecting ? (
-            <Activity size={64} color="#eab308" />
+            <Animated.View style={{ transform: [{ rotate }] }}>
+              <Activity size={64} color="#eab308" />
+            </Animated.View>
           ) : (
             <ShieldAlert size={64} color="#94a3b8" />
           )}
@@ -79,25 +123,41 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Statistics Bottom Panel */}
-      <View className="bg-dark-800 rounded-t-3xl p-6">
-        <View className="flex-row justify-between mb-4">
-          <View className="items-center">
-            <Text className="text-slate-400 text-xs mb-1">DOWNLOAD</Text>
-            <Text className="text-white font-bold">{stats.downloadRate}</Text>
+        {/* Statistics Bottom Panel */}
+      <View className="bg-dark-900 rounded-t-[40px] p-8 border-t border-dark-800">
+        <View className="flex-row justify-between mb-8">
+          <View className="items-center flex-1">
+            <View className="bg-accent-blue/10 p-2 rounded-lg mb-2">
+              <Activity size={16} color="#3b82f6" />
+            </View>
+            <Text className="text-slate-500 text-[10px] font-bold uppercase mb-1">Download</Text>
+            <Text className="text-white font-black text-lg">{stats.downloadRate}</Text>
           </View>
-          <View className="items-center">
-            <Text className="text-slate-400 text-xs mb-1">UPLOAD</Text>
-            <Text className="text-white font-bold">{stats.uploadRate}</Text>
+          
+          <View className="w-[1px] h-10 bg-dark-800 self-center" />
+
+          <View className="items-center flex-1">
+            <View className="bg-primary-500/10 p-2 rounded-lg mb-2">
+              <Activity size={16} color="#22c55e" />
+            </View>
+            <Text className="text-slate-500 text-[10px] font-bold uppercase mb-1">Upload</Text>
+            <Text className="text-white font-black text-lg">{stats.uploadRate}</Text>
           </View>
-          <View className="items-center">
-            <Text className="text-slate-400 text-xs mb-1">PING</Text>
-            <Text className="text-white font-bold">{stats.ping}</Text>
+
+          <View className="w-[1px] h-10 bg-dark-800 self-center" />
+
+          <View className="items-center flex-1">
+            <View className="bg-accent-amber/10 p-2 rounded-lg mb-2">
+              <Wifi size={16} color="#f59e0b" />
+            </View>
+            <Text className="text-slate-500 text-[10px] font-bold uppercase mb-1">Ping</Text>
+            <Text className="text-white font-black text-lg">{stats.ping}</Text>
           </View>
         </View>
-        <View className="bg-dark-700 h-1 w-full rounded-full overflow-hidden">
-          <View className="bg-primary-500 h-full w-1/3" />
-        </View>
+        
+        <TouchableOpacity className="bg-dark-800 py-4 rounded-2xl items-center border border-dark-700">
+          <Text className="text-slate-300 font-bold">VIEW CONNECTION LOGS</Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
