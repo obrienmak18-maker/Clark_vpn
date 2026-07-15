@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: |
           cd mobile-app
-          npm ci
+          npm install --legacy-peer-deps
 
       # ── 5. Gradle cache ───────────────────────────────────────────────────────
       - name: Cache Gradle

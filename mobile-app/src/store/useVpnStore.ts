@@ -29,10 +29,12 @@ interface VpnState {
   connect: (protocol?: string) => Promise<void>;
   disconnect: () => Promise<void>;
 
-  // Timer
+  // Timer internals
   _connectedAt: number | null;
   _timerRef: ReturnType<typeof setInterval> | null;
 }
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 const now = () => {
   const d = new Date();
@@ -53,21 +55,33 @@ const formatBytes = (bytes: number): string => {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB/s`;
 };
 
+const formatTotal = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+};
+
+const RESET_STATS: VpnStats = {
+  uploadRate: '0 B/s',
+  downloadRate: '0 B/s',
+  ping: '--',
+  connectedTime: '00:00:00',
+  totalDataUsed: '0 B',
+};
+
+// ── Store ─────────────────────────────────────────────────────────────────────
+
 export const useVpnStore = create<VpnState>((set, get) => ({
   status: 'DISCONNECTED',
   activeConfig: null,
   configs: [],
   currentServer: null,
-  stats: {
-    uploadRate: '0 B/s',
-    downloadRate: '0 B/s',
-    ping: '--',
-    connectedTime: '00:00:00',
-    totalDataUsed: '0 B',
-  },
+  stats: { ...RESET_STATS },
   logs: [],
   _connectedAt: null,
   _timerRef: null,
+
+  // ── Config / Server ─────────────────────────────────────────────────────────
 
   setActiveConfig: (config) => {
     set({ activeConfig: config });
@@ -89,10 +103,12 @@ export const useVpnStore = create<VpnState>((set, get) => ({
 
   setCurrentServer: (server) => {
     set({ currentServer: server });
-    get().addLog(`Serveur sélectionné: ${server.name} (${server.location}) — ping ${server.ping}ms`, 'info');
+    get().addLog(`Serveur: ${server.name} (${server.location}) — ping ${server.ping}ms`, 'info');
   },
 
   setStats: (newStats) => set(s => ({ stats: { ...s.stats, ...newStats } })),
+
+  // ── Logs ────────────────────────────────────────────────────────────────────
 
   addLog: (message, type) => {
     const entry: LogEntry = { time: now(), message, type };
@@ -101,81 +117,119 @@ export const useVpnStore = create<VpnState>((set, get) => ({
 
   clearLogs: () => set({ logs: [] }),
 
-  connect: async (protocol) => {
-    const { activeConfig, currentServer, addLog } = get();
+  // ── Connect ─────────────────────────────────────────────────────────────────
 
+  connect: async (protocol) => {
+    const { activeConfig, currentServer, addLog, _timerRef } = get();
+
+    // Guard: nothing to connect to
     if (!activeConfig && !currentServer) {
       addLog('Erreur: aucune configuration ni serveur sélectionné', 'error');
       set({ status: 'ERROR' });
       return;
     }
 
-    set({ status: 'CONNECTING' });
+    // Clear any stale timer
+    if (_timerRef) clearInterval(_timerRef);
+
+    set({ status: 'CONNECTING', _timerRef: null });
+
     const proto = protocol || activeConfig?.protocol || 'V2Ray/Xray';
-    addLog(`Initialisation du tunnel ${proto}...`, 'info');
+    addLog(`Initialisation du tunnel ${proto}…`, 'info');
 
     if (activeConfig) {
       addLog(`Config: ${activeConfig.name}`, 'info');
       addLog(`Serveur: ${activeConfig.host}:${activeConfig.port}`, 'info');
-      addLog(`Transport: ${activeConfig.transport}`, 'info');
+      if (activeConfig.transport) addLog(`Transport: ${activeConfig.transport}`, 'info');
       if (activeConfig.sni) addLog(`SNI: ${activeConfig.sni}`, 'info');
     } else if (currentServer) {
       addLog(`Serveur: ${currentServer.name} (${currentServer.ipAddress}:${currentServer.port})`, 'info');
     }
 
     try {
-      const payload = activeConfig ? JSON.stringify(activeConfig) : JSON.stringify({ server: currentServer, protocol: proto });
+      const payload = activeConfig
+        ? JSON.stringify(activeConfig)
+        : JSON.stringify({ server: currentServer, protocol: proto });
+
       const result = await VpnBridge.startVpn(payload);
 
-      if (result === 'STARTED' || result === 'PERMISSION_REQUESTED') {
-        const connectedAt = Date.now();
-        const ping = currentServer
-          ? `${currentServer.ping}ms`
-          : `${Math.floor(Math.random() * 80) + 10}ms`;
+      if (result === 'STARTED') {
+        // ── Permission already granted, service launched ──────────────────────
+        _onConnected(proto);
 
-        set({ status: 'CONNECTED', _connectedAt: connectedAt });
-        get().setStats({ ping, uploadRate: '0 KB/s', downloadRate: '0 KB/s', connectedTime: '00:00:00', totalDataUsed: '0 B' });
-        addLog(`✓ Connecté avec succès ! Ping: ${ping}`, 'success');
-        addLog(`Protocole actif: ${proto}`, 'success');
+      } else if (result === 'PERMISSION_REQUESTED') {
+        // Legacy path: native module resolved immediately without waiting for
+        // onActivityResult (old behaviour). Treat the same as CANCELLED so the
+        // user sees the correct state; they can tap Connect again after granting.
+        addLog('En attente de la permission VPN Android…', 'warn');
+        set({ status: 'CONNECTING' });
+        // The updated VpnBridgeModule now waits in onActivityResult, so this
+        // branch is only hit on very old builds. We stay CONNECTING and let
+        // the next result (STARTED / CANCELLED) drive the transition.
 
-        let totalBytes = 0;
+      } else if (result === 'CANCELLED') {
+        // ── User dismissed the Android VPN permission dialog ──────────────────
+        addLog('Connexion annulée par l\'utilisateur.', 'warn');
+        set({ status: 'DISCONNECTED', _connectedAt: null, _timerRef: null, stats: { ...RESET_STATS } });
 
-        const timer = setInterval(() => {
-          const state = get();
-          if (state.status !== 'CONNECTED' || !state._connectedAt) {
-            clearInterval(timer);
-            return;
-          }
-          const upBytes = Math.floor(Math.random() * 400000 + 10000);
-          const downBytes = Math.floor(Math.random() * 2000000 + 100000);
-          totalBytes += upBytes + downBytes;
-
-          const totalFmt = totalBytes < 1024 * 1024
-            ? `${(totalBytes / 1024).toFixed(0)} KB`
-            : `${(totalBytes / 1024 / 1024).toFixed(1)} MB`;
-
-          state.setStats({
-            connectedTime: formatDuration(state._connectedAt),
-            uploadRate: formatBytes(upBytes),
-            downloadRate: formatBytes(downBytes),
-            totalDataUsed: totalFmt,
-          });
-        }, 1000);
-
-        set({ _timerRef: timer });
+      } else {
+        addLog(`Résultat inattendu: ${result}`, 'error');
+        set({ status: 'ERROR' });
       }
+
     } catch (error: any) {
       addLog(`✗ Échec de connexion: ${error?.message || 'Erreur inconnue'}`, 'error');
-      set({ status: 'ERROR' });
+      set({ status: 'ERROR', _timerRef: null });
+    }
+
+    // ── Helper: called once the VPN is confirmed STARTED ──────────────────────
+    function _onConnected(proto: string) {
+      const connectedAt = Date.now();
+      const ping = currentServer
+        ? `${currentServer.ping}ms`
+        : `${Math.floor(Math.random() * 60) + 15}ms`;
+
+      set({ status: 'CONNECTED', _connectedAt: connectedAt });
+      get().setStats({ ping, uploadRate: '0 KB/s', downloadRate: '0 KB/s', connectedTime: '00:00:00', totalDataUsed: '0 B' });
+      get().addLog(`✓ Connecté ! Ping: ${ping}`, 'success');
+      get().addLog(`Protocole actif: ${proto}`, 'success');
+
+      let totalBytes = 0;
+
+      const timer = setInterval(() => {
+        const state = get();
+        if (state.status !== 'CONNECTED' || !state._connectedAt) {
+          clearInterval(timer);
+          return;
+        }
+
+        // Simulate realistic traffic (100 KB/s – 2 MB/s down, 10–400 KB/s up)
+        const downBytes = Math.floor(Math.random() * 1_800_000 + 100_000);
+        const upBytes   = Math.floor(Math.random() * 380_000  + 10_000);
+        totalBytes += downBytes + upBytes;
+
+        state.setStats({
+          connectedTime:  formatDuration(state._connectedAt!),
+          downloadRate:   formatBytes(downBytes),
+          uploadRate:     formatBytes(upBytes),
+          totalDataUsed:  formatTotal(totalBytes),
+        });
+      }, 1000);
+
+      set({ _timerRef: timer });
     }
   },
 
+  // ── Disconnect ───────────────────────────────────────────────────────────────
+
   disconnect: async () => {
     const { _timerRef, addLog } = get();
+
+    // Stop the live stats timer immediately
     if (_timerRef) clearInterval(_timerRef);
 
-    set({ status: 'DISCONNECTING' });
-    addLog('Déconnexion en cours...', 'warn');
+    set({ status: 'DISCONNECTING', _timerRef: null });
+    addLog('Déconnexion en cours…', 'warn');
 
     try {
       await VpnBridge.stopVpn();
@@ -183,15 +237,12 @@ export const useVpnStore = create<VpnState>((set, get) => ({
         status: 'DISCONNECTED',
         _connectedAt: null,
         _timerRef: null,
-        stats: {
-          uploadRate: '0 B/s', downloadRate: '0 B/s',
-          ping: '--', connectedTime: '00:00:00', totalDataUsed: '0 B',
-        },
+        stats: { ...RESET_STATS },
       });
       addLog('VPN déconnecté.', 'info');
     } catch (error: any) {
       addLog(`Erreur déconnexion: ${error?.message}`, 'error');
-      set({ status: 'DISCONNECTED', _connectedAt: null, _timerRef: null });
+      set({ status: 'DISCONNECTED', _connectedAt: null, _timerRef: null, stats: { ...RESET_STATS } });
     }
   },
 }));
