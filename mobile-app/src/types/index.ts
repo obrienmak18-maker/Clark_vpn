@@ -5,7 +5,7 @@ export interface VpnConfig {
   name: string;
   host: string;
   port: number;
-  protocol: string; // 'SSH' | 'V2Ray/Xray' | 'VLess' | 'HTTP Inject' | 'Shadowsocks' | 'OpenVPN'
+  protocol: string; // 'V2Ray/Xray' | 'SSH' | 'VLess' | 'HTTP Inject' | 'Shadowsocks' | 'OpenVPN'
   transport: string; // 'TCP' | 'WebSocket' | 'WebSocket + TLS' | 'gRPC' | 'HTTP/2'
   uuid?: string;
   sni?: string;
@@ -14,6 +14,19 @@ export interface VpnConfig {
   sshPass?: string;
   injectHost?: string;
   raw?: string;
+}
+
+export interface Server {
+  id: string;
+  name: string;
+  location: string;
+  flag: string;
+  ipAddress: string;
+  port: number;
+  protocol: string;
+  load: number;
+  ping: number;
+  isActive?: boolean;
 }
 
 export interface LogEntry {

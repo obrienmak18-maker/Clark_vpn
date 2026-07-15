@@ -1,11 +1,12 @@
 import { create } from 'zustand';
-import { VpnConfig, VpnStatus, VpnStats, LogEntry } from '../types';
+import { VpnConfig, VpnStatus, VpnStats, LogEntry, Server } from '../types';
 import VpnBridge from '../services/VpnBridge';
 
 interface VpnState {
   status: VpnStatus;
   activeConfig: VpnConfig | null;
   configs: VpnConfig[];
+  currentServer: Server | null;
   stats: VpnStats;
   logs: LogEntry[];
 
@@ -13,6 +14,9 @@ interface VpnState {
   setActiveConfig: (config: VpnConfig) => void;
   addConfig: (config: VpnConfig) => void;
   deleteConfig: (id: string) => void;
+
+  // Server
+  setCurrentServer: (server: Server) => void;
 
   // Stats
   setStats: (stats: Partial<VpnStats>) => void;
@@ -43,10 +47,17 @@ const formatDuration = (start: number) => {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 };
 
+const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B/s`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB/s`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB/s`;
+};
+
 export const useVpnStore = create<VpnState>((set, get) => ({
   status: 'DISCONNECTED',
   activeConfig: null,
   configs: [],
+  currentServer: null,
   stats: {
     uploadRate: '0 B/s',
     downloadRate: '0 B/s',
@@ -65,7 +76,7 @@ export const useVpnStore = create<VpnState>((set, get) => ({
 
   addConfig: (config) => {
     set(s => ({ configs: [...s.configs, config] }));
-    get().addLog(`Nouvelle config ajoutée: ${config.name}`, 'success');
+    get().addLog(`Nouveau profil ajouté: ${config.name}`, 'success');
   },
 
   deleteConfig: (id) => {
@@ -76,59 +87,85 @@ export const useVpnStore = create<VpnState>((set, get) => ({
     get().addLog('Configuration supprimée', 'warn');
   },
 
+  setCurrentServer: (server) => {
+    set({ currentServer: server });
+    get().addLog(`Serveur sélectionné: ${server.name} (${server.location}) — ping ${server.ping}ms`, 'info');
+  },
+
   setStats: (newStats) => set(s => ({ stats: { ...s.stats, ...newStats } })),
 
   addLog: (message, type) => {
     const entry: LogEntry = { time: now(), message, type };
-    set(s => ({ logs: [...s.logs.slice(-199), entry] })); // keep last 200
+    set(s => ({ logs: [...s.logs.slice(-199), entry] }));
   },
 
   clearLogs: () => set({ logs: [] }),
 
   connect: async (protocol) => {
-    const { activeConfig, addLog } = get();
+    const { activeConfig, currentServer, addLog } = get();
 
-    if (!activeConfig) {
-      addLog('Erreur: aucune configuration sélectionnée', 'error');
+    if (!activeConfig && !currentServer) {
+      addLog('Erreur: aucune configuration ni serveur sélectionné', 'error');
       set({ status: 'ERROR' });
       return;
     }
 
     set({ status: 'CONNECTING' });
-    addLog(`Connexion via ${protocol || activeConfig.protocol}...`, 'info');
-    addLog(`Serveur: ${activeConfig.host}:${activeConfig.port}`, 'info');
-    addLog(`Transport: ${activeConfig.transport}`, 'info');
+    const proto = protocol || activeConfig?.protocol || 'V2Ray/Xray';
+    addLog(`Initialisation du tunnel ${proto}...`, 'info');
+
+    if (activeConfig) {
+      addLog(`Config: ${activeConfig.name}`, 'info');
+      addLog(`Serveur: ${activeConfig.host}:${activeConfig.port}`, 'info');
+      addLog(`Transport: ${activeConfig.transport}`, 'info');
+      if (activeConfig.sni) addLog(`SNI: ${activeConfig.sni}`, 'info');
+    } else if (currentServer) {
+      addLog(`Serveur: ${currentServer.name} (${currentServer.ipAddress}:${currentServer.port})`, 'info');
+    }
 
     try {
-      const payload = JSON.stringify(activeConfig);
+      const payload = activeConfig ? JSON.stringify(activeConfig) : JSON.stringify({ server: currentServer, protocol: proto });
       const result = await VpnBridge.startVpn(payload);
 
       if (result === 'STARTED' || result === 'PERMISSION_REQUESTED') {
         const connectedAt = Date.now();
-        const ping = `${Math.floor(Math.random() * 80) + 10}ms`;
-        set({ status: 'CONNECTED', _connectedAt: connectedAt });
-        get().setStats({ ping, uploadRate: '0 KB/s', downloadRate: '0 KB/s', connectedTime: '00:00:00' });
-        addLog(`Connecté avec succès ! Ping: ${ping}`, 'success');
+        const ping = currentServer
+          ? `${currentServer.ping}ms`
+          : `${Math.floor(Math.random() * 80) + 10}ms`;
 
-        // Start timer
+        set({ status: 'CONNECTED', _connectedAt: connectedAt });
+        get().setStats({ ping, uploadRate: '0 KB/s', downloadRate: '0 KB/s', connectedTime: '00:00:00', totalDataUsed: '0 B' });
+        addLog(`✓ Connecté avec succès ! Ping: ${ping}`, 'success');
+        addLog(`Protocole actif: ${proto}`, 'success');
+
+        let totalBytes = 0;
+
         const timer = setInterval(() => {
           const state = get();
           if (state.status !== 'CONNECTED' || !state._connectedAt) {
             clearInterval(timer);
             return;
           }
-          const up = `${(Math.random() * 500 + 10).toFixed(0)} KB/s`;
-          const down = `${(Math.random() * 2000 + 100).toFixed(0)} KB/s`;
+          const upBytes = Math.floor(Math.random() * 400000 + 10000);
+          const downBytes = Math.floor(Math.random() * 2000000 + 100000);
+          totalBytes += upBytes + downBytes;
+
+          const totalFmt = totalBytes < 1024 * 1024
+            ? `${(totalBytes / 1024).toFixed(0)} KB`
+            : `${(totalBytes / 1024 / 1024).toFixed(1)} MB`;
+
           state.setStats({
             connectedTime: formatDuration(state._connectedAt),
-            uploadRate: up,
-            downloadRate: down,
+            uploadRate: formatBytes(upBytes),
+            downloadRate: formatBytes(downBytes),
+            totalDataUsed: totalFmt,
           });
         }, 1000);
+
         set({ _timerRef: timer });
       }
     } catch (error: any) {
-      addLog(`Échec de connexion: ${error?.message || 'Erreur inconnue'}`, 'error');
+      addLog(`✗ Échec de connexion: ${error?.message || 'Erreur inconnue'}`, 'error');
       set({ status: 'ERROR' });
     }
   },
@@ -153,7 +190,7 @@ export const useVpnStore = create<VpnState>((set, get) => ({
       });
       addLog('VPN déconnecté.', 'info');
     } catch (error: any) {
-      addLog(`Erreur à la déconnexion: ${error?.message}`, 'error');
+      addLog(`Erreur déconnexion: ${error?.message}`, 'error');
       set({ status: 'DISCONNECTED', _connectedAt: null, _timerRef: null });
     }
   },
