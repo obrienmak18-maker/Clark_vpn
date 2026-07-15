@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, SafeAreaView, StatusBar,
-  ScrollView, StyleSheet, Animated, Easing, Platform,
+  ScrollView, StyleSheet, Animated, Easing, Platform, Image,
 } from 'react-native';
 import {
-  Shield, Globe, ChevronRight, Download, Upload,
-  Activity, Clock, Zap, AlertCircle, CheckCircle2,
+  Globe, ChevronRight, Download, Upload,
+  Activity, Zap, AlertCircle, CheckCircle2,
   Wifi, Radio,
 } from 'lucide-react-native';
+
+const CLARK_LOGO = require('../../assets/icon.png');
 import { useNavigation } from '@react-navigation/native';
 import { useVpnStore } from '../store/useVpnStore';
 import { C } from '../theme';
@@ -89,7 +91,7 @@ export default function HomeScreen() {
       {/* ── APP HEADER ──────────────────────────────────── */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Shield size={20} color={C.white} strokeWidth={2.5} />
+          <Image source={CLARK_LOGO} style={styles.headerLogo} resizeMode="contain" />
           <View style={styles.headerTitles}>
             <Text style={styles.headerAppName}>
               CLARK<Text style={styles.headerAppNameAccent}>VPN</Text>
@@ -155,7 +157,14 @@ export default function HomeScreen() {
                 ) : isError ? (
                   <AlertCircle size={36} color={C.red} strokeWidth={2} />
                 ) : (
-                  <Shield size={36} color={isConnecting ? C.yellow : C.tealLight} strokeWidth={2} />
+                  <Image
+                    source={CLARK_LOGO}
+                    style={[
+                      styles.connectLogo,
+                      { opacity: isConnecting ? 0.7 : 1 },
+                    ]}
+                    resizeMode="contain"
+                  />
                 )}
                 <Text style={[styles.connectLabel, { color: isConnecting ? C.yellow : isConnected ? C.green : isError ? C.red : C.text }]}>
                   {btnLabel}
@@ -366,6 +375,8 @@ const styles = StyleSheet.create({
   },
   connectLabel: { fontSize: 12, fontWeight: '900', letterSpacing: 2 },
   connectDuration: { fontSize: 11, color: C.green, fontWeight: '700', letterSpacing: 1 },
+  connectLogo: { width: 48, height: 48 },
+  headerLogo: { width: 36, height: 36, borderRadius: 8 },
 
   // Big action button
   actionRow: { paddingHorizontal: 16, marginBottom: 14 },
