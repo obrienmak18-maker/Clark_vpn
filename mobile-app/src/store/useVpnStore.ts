@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import { VpnConfig, VpnStatus, VpnStats, LogEntry, Server } from '../types';
 import VpnBridge from '../services/VpnBridge';
+import { importConfig, exportConfig } from '../utils/crypto';
+
+// ... (skipping some unchanged lines to keep replacement targeted)
+// We will target the config section for the actual methods.
 
 interface VpnState {
   status: VpnStatus;
@@ -14,6 +18,8 @@ interface VpnState {
   setActiveConfig: (config: VpnConfig) => void;
   addConfig: (config: VpnConfig) => void;
   deleteConfig: (id: string) => void;
+  importConfigString: (encryptedData: string) => void;
+  exportConfigString: (configId: string, message: string, expireDate?: string) => string | null;
 
   // Server
   setCurrentServer: (server: Server) => void;
@@ -99,6 +105,29 @@ export const useVpnStore = create<VpnState>((set, get) => ({
       activeConfig: s.activeConfig?.id === id ? null : s.activeConfig,
     }));
     get().addLog('Configuration supprimée', 'warn');
+  },
+
+  importConfigString: (encryptedData) => {
+    try {
+      const config = importConfig(encryptedData);
+      set(s => ({ configs: [...s.configs, config] }));
+      get().addLog(`Configuration importée avec succès`, 'success');
+    } catch (e: any) {
+      get().addLog(e.message || 'Erreur lors de l\'importation', 'error');
+    }
+  },
+
+  exportConfigString: (configId, message, expireDate) => {
+    const config = get().configs.find(c => c.id === configId);
+    if (!config) return null;
+    try {
+      const exported = exportConfig(config, message, expireDate);
+      get().addLog(`Configuration exportée avec succès`, 'success');
+      return exported;
+    } catch (e: any) {
+      get().addLog('Erreur lors de l\'exportation', 'error');
+      return null;
+    }
   },
 
   setCurrentServer: (server) => {

@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, SafeAreaView, StatusBar,
   ScrollView, StyleSheet, Animated, Easing, Platform, Image,
+  TextInput, Modal, Alert, Clipboard,
 } from 'react-native';
 import {
   Globe, ChevronRight, Download, Upload,
   Activity, Zap, AlertCircle, CheckCircle2,
-  Wifi, Radio,
+  Wifi, Lock, Import, Plus, X, FileKey,
 } from 'lucide-react-native';
 
 const CLARK_LOGO = require('../../assets/icon.png');
@@ -14,12 +15,11 @@ import { useNavigation } from '@react-navigation/native';
 import { useVpnStore } from '../store/useVpnStore';
 import { C } from '../theme';
 
-const PROTOCOLS = ['V2Ray/Xray', 'SSH', 'HTTP Inject', 'VLess', 'Shadowsocks'];
-
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
-  const { status, activeConfig, currentServer, stats, connect, disconnect, logs } = useVpnStore();
-  const [selectedProtocol, setSelectedProtocol] = useState(0);
+  const { status, activeConfig, currentServer, stats, connect, disconnect, logs, importConfigString } = useVpnStore();
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [importText, setImportText] = useState('');
 
   const isConnected = status === 'CONNECTED';
   const isConnecting = status === 'CONNECTING' || status === 'DISCONNECTING';
@@ -70,8 +70,24 @@ export default function HomeScreen() {
     if (isConnected || isConnecting) {
       disconnect();
     } else {
-      connect(PROTOCOLS[selectedProtocol]);
+      connect();
     }
+  };
+
+  const handleImport = () => {
+    if (!importText.trim()) return;
+    importConfigString(importText.trim());
+    setImportText('');
+    setImportModalVisible(false);
+  };
+
+  const handlePasteAndImport = async () => {
+    try {
+      const text = await Clipboard.getString();
+      if (text) {
+        setImportText(text);
+      }
+    } catch (e) {}
   };
 
   // ── Derived state ────────────────────────────────────────────
@@ -81,6 +97,11 @@ export default function HomeScreen() {
   const btnLabel = isConnected ? 'ARRÊTER' : isConnecting ? 'ANNULER' : 'DÉMARRER';
   const btnColor = isConnected ? C.red : isConnecting ? C.yellow : C.teal;
   const btnBg = isConnected ? 'rgba(239,68,68,0.15)' : isConnecting ? 'rgba(245,158,11,0.15)' : C.tealGlow;
+
+  // Check expiration
+  const isExpired = activeConfig?.expireDate
+    ? new Date(activeConfig.expireDate).getTime() < Date.now()
+    : false;
 
   const lastLog = logs[logs.length - 1];
 
@@ -96,40 +117,63 @@ export default function HomeScreen() {
             <Text style={styles.headerAppName}>
               CLARK<Text style={styles.headerAppNameAccent}>VPN</Text>
             </Text>
-            <Text style={styles.headerVersion}>v2.1.0 • HTTP Injector</Text>
+            <Text style={styles.headerVersion}>v2.1.0 — Protégé</Text>
           </View>
         </View>
         <View style={styles.headerRight}>
-          <View style={[styles.headerBadge, { backgroundColor: statusBg, borderColor: statusColor }]}>
-            <View style={[styles.headerDot, { backgroundColor: statusColor }]} />
-            <Text style={[styles.headerBadgeText, { color: statusColor }]}>{statusText}</Text>
-          </View>
+          <TouchableOpacity
+            style={styles.importHeaderBtn}
+            onPress={() => setImportModalVisible(true)}
+          >
+            <Plus size={14} color={C.white} strokeWidth={2.5} />
+            <Text style={styles.importHeaderBtnText}>IMPORTER</Text>
+          </TouchableOpacity>
         </View>
       </View>
+
+      {/* ── IMPORT MODAL ──────────────────────────────── */}
+      <Modal visible={importModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <FileKey size={20} color={C.tealLight} />
+              <Text style={styles.modalTitle}>Importer une Configuration</Text>
+              <TouchableOpacity onPress={() => setImportModalVisible(false)}>
+                <X size={20} color={C.textDim} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalSub}>Collez votre code Clark (.clark) ou utilisez le bouton Coller.</Text>
+            <TextInput
+              style={styles.modalInput}
+              multiline
+              numberOfLines={4}
+              value={importText}
+              onChangeText={setImportText}
+              placeholder="clark://U2FsdGVkX1..."
+              placeholderTextColor={C.textDim}
+            />
+            <TouchableOpacity style={styles.modalPasteBtn} onPress={handlePasteAndImport}>
+              <Text style={styles.modalPasteBtnText}>📋  Coller depuis le presse-papiers</Text>
+            </TouchableOpacity>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => setImportModalVisible(false)}>
+                <Text style={styles.modalBtnCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnImport]} onPress={handleImport}>
+                <Text style={styles.modalBtnImportText}>Importer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* ── PROTOCOL SELECTOR ───────────────────────── */}
-        <View style={styles.protoSection}>
-          <Text style={styles.sectionLabel}>TYPE DE TUNNEL</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {PROTOCOLS.map((p, i) => (
-              <TouchableOpacity
-                key={p}
-                onPress={() => setSelectedProtocol(i)}
-                style={[styles.protoChip, i === selectedProtocol && styles.protoChipActive]}
-              >
-                <Radio size={11} color={i === selectedProtocol ? C.tealLight : C.textDim} strokeWidth={2} />
-                <Text style={[styles.protoText, i === selectedProtocol && styles.protoTextActive]}>
-                  {p}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+        {/* ── SPACING ─────────────────────────────────────── */}
+        <View style={{ height: 24 }} />
 
         {/* ── CONNECT BUTTON AREA ─────────────────────── */}
         <View style={styles.connectArea}>
@@ -220,38 +264,63 @@ export default function HomeScreen() {
           <ChevronRight size={20} color={C.tealLight} />
         </TouchableOpacity>
 
-        {/* ── ACTIVE CONFIG ───────────────────────────── */}
-        <View style={styles.configInfoCard}>
-          <View style={styles.configInfoRow}>
-            <Text style={styles.configInfoLabel}>CONFIGURATION</Text>
-            <Text style={[styles.configInfoValue, { color: activeConfig ? C.tealLight : C.textDim }]} numberOfLines={1}>
-              {activeConfig ? activeConfig.name : 'Aucune sélectionnée'}
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.configInfoRow}>
-            <Text style={styles.configInfoLabel}>PROTOCOLE</Text>
-            <Text style={styles.configInfoValue}>
-              {activeConfig?.protocol ?? PROTOCOLS[selectedProtocol]}
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.configInfoRow}>
-            <Text style={styles.configInfoLabel}>TRANSPORT</Text>
-            <Text style={styles.configInfoValue}>
-              {activeConfig?.transport ?? 'WebSocket + TLS'}
-            </Text>
-          </View>
-          {activeConfig?.sni ? (
-            <>
-              <View style={styles.divider} />
-              <View style={styles.configInfoRow}>
-                <Text style={styles.configInfoLabel}>SNI</Text>
-                <Text style={styles.configInfoValue}>{activeConfig.sni}</Text>
+        {/* ── ACTIVE CONFIG CARD (Consumer View) ────────── */}
+        {activeConfig ? (
+          <View style={[styles.configInfoCard, isExpired && { borderColor: C.red }]}>
+            <View style={styles.configInfoRow}>
+              <View style={styles.configNameRow}>
+                <Lock size={13} color={activeConfig.isLocked ? C.tealLight : C.textDim} />
+                <Text style={styles.configInfoLabel}>
+                  {activeConfig.isLocked ? 'CONFIGURATION SÉCURISÉE' : 'CONFIGURATION'}
+                </Text>
               </View>
-            </>
-          ) : null}
-        </View>
+              {isExpired && (
+                <View style={styles.expiredBadge}>
+                  <Text style={styles.expiredBadgeText}>EXPIRÉE</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.divider} />
+            <View style={styles.configInfoRow}>
+              <Text style={styles.configInfoLabel}>NOM</Text>
+              <Text style={[styles.configInfoValue, { color: C.tealLight }]} numberOfLines={1}>
+                {activeConfig.name}
+              </Text>
+            </View>
+            {activeConfig.message ? (
+              <>
+                <View style={styles.divider} />
+                <View style={[styles.configInfoRow, { alignItems: 'flex-start' }]}>
+                  <Text style={styles.configInfoLabel}>MESSAGE</Text>
+                  <Text style={[styles.configInfoValue, { flex: 1, textAlign: 'left', marginLeft: 12 }]}>
+                    {activeConfig.message}
+                  </Text>
+                </View>
+              </>
+            ) : null}
+            {activeConfig.expireDate ? (
+              <>
+                <View style={styles.divider} />
+                <View style={styles.configInfoRow}>
+                  <Text style={styles.configInfoLabel}>EXPIRE LE</Text>
+                  <Text style={[styles.configInfoValue, { color: isExpired ? C.red : C.yellow }]}>
+                    {new Date(activeConfig.expireDate).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </Text>
+                </View>
+              </>
+            ) : null}
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[styles.configInfoCard, styles.emptyConfigCard]}
+            onPress={() => setImportModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Plus size={24} color={C.tealLight} />
+            <Text style={styles.emptyConfigText}>Importer une Configuration</Text>
+            <Text style={styles.emptyConfigSub}>Appuyez pour importer un fichier .clark</Text>
+          </TouchableOpacity>
+        )}
 
         {/* ── STATS ───────────────────────────────────── */}
         <View style={styles.statsRow}>
@@ -439,4 +508,57 @@ const styles = StyleSheet.create({
   },
   logDot: { width: 7, height: 7, borderRadius: 4, marginTop: 3, flexShrink: 0 },
   logText: { color: C.textSub, fontSize: 11, fontFamily: 'monospace', flex: 1, lineHeight: 16 },
+
+  // Import header button
+  importHeaderBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
+  },
+  importHeaderBtnText: { color: C.white, fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
+
+  // Locked config extras
+  configNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  expiredBadge: {
+    backgroundColor: 'rgba(239,68,68,0.15)', borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: C.red,
+  },
+  expiredBadgeText: { color: C.red, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+
+  // Empty config state
+  emptyConfigCard: {
+    alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 28, gap: 8, borderStyle: 'dashed',
+  },
+  emptyConfigText: { color: C.tealLight, fontSize: 14, fontWeight: '700' },
+  emptyConfigSub: { color: C.textDim, fontSize: 11 },
+
+  // Import Modal
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 24, borderTopWidth: 1, borderColor: C.border, gap: 14,
+  },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  modalTitle: { flex: 1, color: C.text, fontSize: 16, fontWeight: '800' },
+  modalSub: { color: C.textDim, fontSize: 12, lineHeight: 18 },
+  modalInput: {
+    backgroundColor: C.bg, borderRadius: 12, borderWidth: 1, borderColor: C.border,
+    color: C.text, padding: 12, fontSize: 12, fontFamily: 'monospace',
+    minHeight: 90, textAlignVertical: 'top',
+  },
+  modalPasteBtn: {
+    backgroundColor: C.tealGlow, borderRadius: 10, padding: 12,
+    alignItems: 'center', borderWidth: 1, borderColor: C.teal,
+  },
+  modalPasteBtnText: { color: C.tealLight, fontWeight: '700', fontSize: 13 },
+  modalActions: { flexDirection: 'row', gap: 10 },
+  modalBtn: { flex: 1, borderRadius: 14, paddingVertical: 15, alignItems: 'center' },
+  modalBtnCancel: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.border },
+  modalBtnCancelText: { color: C.textSub, fontWeight: '700' },
+  modalBtnImport: { backgroundColor: C.teal },
+  modalBtnImportText: { color: C.white, fontWeight: '800', fontSize: 14, letterSpacing: 0.5 },
 });
